@@ -128,12 +128,15 @@ def start():
   print("Welcome to the AWS VPC Flow Log parser.")
   ec2 = boto3.client('ec2')
   region = ec2.meta.region_name
-  response = ec2.describe_instances()
-  instance_list = response['Reservations'][0]['Instances']
+  response = ec2.describe_vpcs()
+  
+  instance_list = response['Vpcs']
+
   vpc_ids = []
   for instance in instance_list:
     vpc_id = instance['VpcId']
     vpc_ids.append(vpc_id)
+  print(vpc_ids)
   break_loop = False
   input_id = None
   while break_loop == False:
