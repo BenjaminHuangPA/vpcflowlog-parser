@@ -102,14 +102,14 @@ def get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, client):
   return num_objects 
 
 def mainloop(VPC_ID, REGION):
-  BUCKET_NAME = "flowlogstorage01" #bucket name to be monitored.
+  BUCKET_NAME = VPC_ID + "-flow-log-storage" #bucket name to be monitored.
   PREFIX = "AWSLogs/" #prefix (used to filter out extraneous files from the filtering process)
   TOTAL_OBJECTS = 0 #current total number of objects in the bucket (used to check if new objects have been added)
   ec2_client = boto3.client('ec2')
   client = boto3.client('s3') #create client
-  BUCKET_ARN = "arn:aws:s3:::flowlogstorage01"
+  BUCKET_ARN = "arn:aws:s3:::" + BUCKET_NAME
   paginator = client.get_paginator('list_objects_v2') #create a reusable paginator
-  
+  print("Creating bucket " + BUCKET_NAME + "...")
   create_s3_bucket(client, BUCKET_NAME, REGION)
   flow_log_id = create_vpc_flow_log(ec2_client, VPC_ID, BUCKET_ARN)
   s3 = boto3.resource('s3')
@@ -133,10 +133,12 @@ def start():
   instance_list = response['Vpcs']
 
   vpc_ids = []
+  index = 0
   for instance in instance_list:
     vpc_id = instance['VpcId']
+    print(str(index) + ". " + vpc_id)
     vpc_ids.append(vpc_id)
-  print(vpc_ids)
+    index += 1
   break_loop = False
   input_id = None
   while break_loop == False:
