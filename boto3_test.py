@@ -101,14 +101,12 @@ def get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, client):
 
   return num_objects 
 
-def mainloop():
+def mainloop(VPC_ID, REGION):
   BUCKET_NAME = "flowlogstorage01" #bucket name to be monitored.
-  REGION = "us-west-1"
   PREFIX = "AWSLogs/" #prefix (used to filter out extraneous files from the filtering process)
   TOTAL_OBJECTS = 0 #current total number of objects in the bucket (used to check if new objects have been added)
   ec2_client = boto3.client('ec2')
   client = boto3.client('s3') #create client
-  VPC_ID = "XXXXXXXXXXXXXXXXXXX"
   BUCKET_ARN = "arn:aws:s3:::flowlogstorage01"
   paginator = client.get_paginator('list_objects_v2') #create a reusable paginator
   
@@ -126,7 +124,38 @@ def mainloop():
     delete_vpc_flow_log(ec2_client, flow_log_id)
     pass
 
-mainloop()
+def start():
+  print("Welcome to the AWS VPC Flow Log parser.")
+  ec2 = boto3.client('ec2')
+  region = ec2.meta.region_name
+  response = ec2.describe_instances()
+  instance_list = response['Reservations'][0]['Instances']
+  vpc_ids = []
+  for instance in instance_list:
+    vpc_id = instance['VpcId']
+    vpc_ids.append(vpc_id)
+  break_loop = False
+  input_id = None
+  while break_loop == False:
+    input_id = input("Please enter the VPC ID of the VPC that you would like to monitor: ")
+    valid_id = False
+    for vpc_id in vpc_ids:
+      if input_id == vpc_id:
+        valid_id = True
+    if valid_id == True:
+      break_loop = True
+    else:
+      print("Invalid ID entered. Please try again.")
+  mainloop(input_id, region)
+    
+  
+
+
+start()
+
+#mainloop()
+
+
 #s3_client = boto3.client('s3')
 #Bucket_name = "flowlogstorage01"
 #region = "us-west-1"
