@@ -147,6 +147,13 @@ def get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, client):
   print("Number of objects: " + str(num_objects))
   return num_objects 
 
+#This function returns the user's default region.
+
+def get_default_region():
+  ec2_client = boto3.client('ec2')
+  region = ec2_client.meta.region_name
+  return region
+
 #The main loop of the function. Initializes the EC2 and S3 clients, as well as TOTAL_OBJECTS, BUCKET_NAME, and other variables, creates the paginator
 #and the bucket, and then enters a loop where every 60 secodns, get_num_objects() is called to get the total number of objects in the bucket to check
 #if new flow log records have been published. The user can break out of the loop by hitting CTRL+C, which will delete the created bucket and Flow Log and
@@ -154,12 +161,15 @@ def get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, client):
 #VPC_ID - the ID of the VPC to monitor. Passed in by the start() function.
 #REGION - the region in which to create the client. Passed in by the start() function.
 
+
+
 def mainloop(VPC_ID, REGION):
   BUCKET_NAME = VPC_ID + "-flow-log-storage" #bucket name to be monitored.
   PREFIX = "AWSLogs/" #prefix (used to filter out extraneous files from the filtering process)
   TOTAL_OBJECTS = 0 #current total number of objects in the bucket (used to check if new objects have been added)
+
   ec2_client = boto3.client('ec2', region_name = REGION)
-  default_region = ec2_client.meta.region_name
+  default_region = get_default_region()
   client = boto3.client('s3') #create client
   BUCKET_ARN = "arn:aws:s3:::" + BUCKET_NAME
   paginator = client.get_paginator('list_objects_v2') #create a reusable paginator
@@ -176,43 +186,53 @@ def mainloop(VPC_ID, REGION):
     print("Shutting down...")
     delete_s3_bucket(BUCKET_NAME, client, s3)
     delete_vpc_flow_log(ec2_client, flow_log_id)
-    os.remove('log_01.log.gz')
+    if os.path.exists("log_01.log.gz"):
+      os.remove('log_01.log.gz')
     pass
 
-#This function serves the purpose of receiving and parsing input from the user on which VPC they would like to monitor and which region they would like to
-#create the boto3 EC2 client in. 
 
-def start():
-  print("Welcome to the AWS VPC Flow Log parser.")
+#This function returns a list of AWS regions.
+
+def get_regions():
   ec2 = boto3.client('ec2')
-  response = ec2.describe_vpcs()
-  instance_list = response['Vpcs']
-  vpc_ids = []
-  index = 0
-  for instance in instance_list:
-    vpc_id = instance['VpcId']
-    print(str(index) + ". " + vpc_id)
-    vpc_ids.append(vpc_id)
-    index += 1
   response = ec2.describe_regions()
   endpoints = response['Regions']
   regions = []
   for endpoint in endpoints:
     regions.append(endpoint['RegionName'])
-  break_loop = False
+  return regions
+
+#This function serves the purpose of receiving and parsing input from the user on which VPC they would like to monitor and which region they would like to
+#create the boto3 EC2 client in. 
+
+
+def start():
+  print("Welcome to the AWS VPC Flow Log parser.")
+  regions = get_regions()
   input_id = None
   input_region = None
+  break_loop = False
   while break_loop == False:
+    input_region = input("Please enter the region containing the VPC that you would like to monitor: ")
+    valid_region = False
+    for region in regions:
+      if region == input_region:
+        valid_region = True
+    ec2 = boto3.client('ec2', region_name = input_region)
+    response = ec2.describe_vpcs()
+    instance_list = response['Vpcs']
+    vpc_ids = []
+    index = 0
+    for instance in instance_list:
+      vpc_id = instance['VpcId']
+      print(str(index) + ". " + vpc_id)
+      vpc_ids.append(vpc_id)
+      index += 1
     input_id = input("Please enter the VPC ID of the VPC that you would like to monitor: ")
     valid_id = False
     for vpc_id in vpc_ids:
       if input_id == vpc_id:
         valid_id = True
-    input_region = input("Please enter the region name of the VPC that you would like to monitor: ")
-    valid_region = False
-    for region in regions:
-      if region == input_region:
-        valid_region = True
     if valid_id == True and valid_region == True:
       break_loop = True
     else:
