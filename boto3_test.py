@@ -2,6 +2,7 @@ import boto3
 import gzip
 import time
 import datetime
+import os
 
 #This function creates an S3 bucket to store flow log records. It accepts three arguments:
 #client - a low-level boto3 client representing Amazon Simple Storage Service
@@ -175,6 +176,7 @@ def mainloop(VPC_ID, REGION):
     print("Shutting down...")
     delete_s3_bucket(BUCKET_NAME, client, s3)
     delete_vpc_flow_log(ec2_client, flow_log_id)
+    os.remove('log_01.log.gz')
     pass
 
 #This function serves the purpose of receiving and parsing input from the user on which VPC they would like to monitor and which region they would like to
