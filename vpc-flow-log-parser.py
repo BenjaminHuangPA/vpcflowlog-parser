@@ -239,7 +239,8 @@ def start():
       print("Invalid ID or region entered. Please try again.")
   mainloop(input_id, input_region)
 
-start()
+if __name__ == "__main__":
+  start()
 
 
 
