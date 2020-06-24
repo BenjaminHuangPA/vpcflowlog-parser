@@ -1,4 +1,5 @@
 import boto3
+import botocore
 import gzip
 import time
 import datetime
@@ -11,8 +12,16 @@ import os
 
 def create_s3_bucket(client, BUCKET_NAME, REGION):
   location = {'LocationConstraint': REGION}
-  response = client.create_bucket(Bucket=BUCKET_NAME, CreateBucketConfiguration=location)
-  print("Created bucket successfully")
+  try:
+    response = client.create_bucket(Bucket=BUCKET_NAME, 
+                                    CreateBucketConfiguration=location)
+    print("Created bucket successfully")
+    return 0
+  except botocore.exceptions.ClientError as e:
+    print("An error occurred when attempting to create a bucket. "
+          "This may be because a bucket of that name already exists, or" 
+          "because of a different reason. Shutting down...")
+    return 1
 
 #This function first deletes the contents of an S3 bucket, and then the bucket itself. It is called when the program execution is terminated via
 #a keyboard interrupt. It accepts three arguments:
@@ -21,24 +30,37 @@ def create_s3_bucket(client, BUCKET_NAME, REGION):
 #RESOURCE - a boto3 resource representing Amazon Simple Storage Service. 
 
 def delete_s3_bucket(BUCKET_NAME, CLIENT, RESOURCE):
-  bucket = RESOURCE.Bucket(BUCKET_NAME)
-  bucket.objects.all().delete()
-  response = CLIENT.delete_bucket(Bucket=BUCKET_NAME)
-  print("Deleted bucket successfully")
+  try:
+    bucket = RESOURCE.Bucket(BUCKET_NAME)
+    bucket.objects.all().delete()
+    response = CLIENT.delete_bucket(Bucket=BUCKET_NAME)
+    print("Deleted bucket successfully")
+  except botocore.exceptions.ClientError as e:
+    print("An error occurred when attempting to delete an S3 bucket. "
+          "Shutting down...")
 
-#This function sets up a VPC Flow Log to monitor an AWS EC2 instance. It returns the flow log ID of the flow log created, if successful.
+#This function sets up a VPC Flow Log to monitor an AWS EC2 instance. It returns the flow log ID of the flow log created, if successful. If there is an error, 1 is returned.
 #It accepts three arguments:
 #client - a low-level boto3 client representing the Amazon Elastic Compute Cloud.
 #VPC_ID - the ID of the VPC to create Flow Logs for.
 #BUCKET_ARN - the ARN (Amazon Resource Name) of the bucket in which to store Flow Log files. 
 
 def create_vpc_flow_log(client, VPC_ID, BUCKET_ARN):
-  print("Creating flow logs...")
-  response = client.create_flow_logs(ResourceIds=[VPC_ID], ResourceType='VPC', TrafficType='ALL', LogDestinationType='s3', LogDestination=BUCKET_ARN, MaxAggregationInterval=60);
-  print("Created flow logs successfully")
-  flow_log_id = response['FlowLogIds'][0]
-  print("Flow log ID: " + flow_log_id)
-  return flow_log_id
+  try:
+    print("Creating flow logs...")
+    response = client.create_flow_logs(ResourceIds=[VPC_ID], ResourceType='VPC', 
+                                       TrafficType='ALL', LogDestinationType='s3',
+                                       LogDestination=BUCKET_ARN, 
+                                       MaxAggregationInterval=60);
+    print("Created flow logs successfully")
+    flow_log_id = response['FlowLogIds'][0]
+    print("Flow log ID: " + flow_log_id)
+    return flow_log_id
+  except botocore.exceptions.ClientError as e:
+    print("An error occurred when attempting to create VPC flow logs. "
+          "Shutting down...")
+    return 1
+
 
 #This function deletes a VPC Flow Log. It is called when the program execution is terminated via a keyboard interrupt.
 #It accepts two arguments:
@@ -46,10 +68,14 @@ def create_vpc_flow_log(client, VPC_ID, BUCKET_ARN):
 #flow_log_id - the ID of the flow log to delete.
 
 def delete_vpc_flow_log(client, flow_log_id):
-  print("Deleting flow logs...")
-  response = client.delete_flow_logs(FlowLogIds=[flow_log_id])
-  print("Deleted flow logs successfully")
-
+  try:
+    print("Deleting flow logs...")
+    response = client.delete_flow_logs(FlowLogIds=[flow_log_id])
+    print("Deleted flow logs successfully")
+    return 0
+  except botocore.exceptions.ClientError as e:
+    print("An error occurred when attempting to delete VPC flow logs.")
+    return 1
 #This function reformats strings for the purpose of organizing console printouts. It returns a string of a specified length that consists of
 #an input string as well as padding through whitespace. It accepts two arguments:
 #string - a string to be reformatted.
@@ -93,31 +119,32 @@ def return_protocol_name(number):
 
 def filter_logs(BUCKET_NAME, key, s3):
   try:
-    s3.meta.client.download_file(BUCKET_NAME, key, 'log_01.log.gz') #download a par
+    s3.meta.client.download_file(BUCKET_NAME, key, 'log_01.log.gz') 
     with gzip.open('log_01.log.gz', 'rb') as file:
       file_content = file.read();
       records_list = file_content.splitlines()
-      print("Destination Port | Destination IP   | Source Port | Source IP       | Start Time          | Account ID   | Protocol  | Action |")
+      print("Destination Port | Destination IP   | Source Port | "
+            "Source IP       | Start Time          | Account ID   | "
+            "Protocol  | Action |")
       for record in range(1, len(records_list)):
         split_record = records_list[record].split()
         source_port = split_record[5].decode('utf-8')
         destination_port = split_record[6].decode('utf-8')
-        source_ip = split_record[3].decode('utf-8')
-        destination_ip = split_record[4].decode('utf-8')
-        start_time = split_record[10].decode('utf-8')
-        account_id = split_record[1].decode('utf-8')
-        protocol = split_record[7].decode('utf-8')
-        protocol_name = return_protocol_name(protocol)
-        action = split_record[12].decode('utf-8')
-        if source_port != '443' and destination_port != '443':          
+        if source_port != '443' and destination_port != '443':
+                    
           source_port_reformatted = string_reformatter(source_port, 12)
           destination_port_reformatted = string_reformatter(destination_port, 17)
-          source_ip_reformatted = string_reformatter(source_ip, 16)
-          destination_ip_reformatted = string_reformatter(destination_ip, 17)
-          start_time = convert_from_unix_time(start_time)
-          protocol_reformatted = string_reformatter(protocol_name, 10)
-          action_reformatted = string_reformatter(action, 7) 
-          print(destination_port_reformatted + destination_ip_reformatted + source_port_reformatted + source_ip_reformatted + start_time + " | " + account_id + " | " + protocol_reformatted + action_reformatted)
+          source_ip_reformatted = string_reformatter(split_record[3].decode('utf-8'), 16)
+          destination_ip_reformatted = string_reformatter(split_record[4].decode('utf-8'), 17)
+          start_time = convert_from_unix_time(split_record[10].decode('utf-8'))
+          protocol = split_record[7].decode('utf-8')
+          account_id = split_record[1].decode('utf-8')
+          protocol_reformatted = string_reformatter(return_protocol_name(protocol), 10)
+          action_reformatted = string_reformatter(split_record[12].decode('utf-8'), 7) 
+          print(destination_port_reformatted + destination_ip_reformatted + 
+                source_port_reformatted + source_ip_reformatted + start_time + 
+                " | " + account_id + " | " + protocol_reformatted + 
+                action_reformatted)
   except botocore.exceptions.ClientError as e:
     if e.response['Error']['Code'] == "404":
       print("The object with the specified key does not exist.")
@@ -174,12 +201,17 @@ def mainloop(VPC_ID, REGION):
   BUCKET_ARN = "arn:aws:s3:::" + BUCKET_NAME
   paginator = client.get_paginator('list_objects_v2') #create a reusable paginator
   print("Creating bucket " + BUCKET_NAME + "...")
-  create_s3_bucket(client, BUCKET_NAME, default_region)
+  create_bucket_result = create_s3_bucket(client, BUCKET_NAME, default_region)
+  if create_bucket_result == 1:
+    return
   flow_log_id = create_vpc_flow_log(ec2_client, VPC_ID, BUCKET_ARN)
+  if flow_log_id == 1:
+    return
   s3 = boto3.resource('s3')
   try:
     while True:
-      TOTAL_OBJECTS = get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, s3) #update the number of registered objects in the bucket. we pass the bucket name and current number of registered objects to this function.
+      TOTAL_OBJECTS = get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, 
+                                      paginator, s3) #update the number of registered objects in the bucket. we pass the bucket name and current number of registered objects to this function.
       print("Querying the bucket for additional objects...")
       time.sleep(60)
   except KeyboardInterrupt:
@@ -213,7 +245,8 @@ def start():
   input_region = None
   break_loop = False
   while break_loop == False:
-    input_region = input("Please enter the region containing the VPC that you would like to monitor: ")
+    input_region = input("Please enter the region containing the VPC "
+                         "that you would like to monitor: ")
     valid_region = False
     for region in regions:
       if region == input_region:
@@ -228,7 +261,8 @@ def start():
       print(str(index) + ". " + vpc_id)
       vpc_ids.append(vpc_id)
       index += 1
-    input_id = input("Please enter the VPC ID of the VPC that you would like to monitor: ")
+    input_id = input("Please enter the VPC ID of the VPC that you would"
+                     " like to monitor: ")
     valid_id = False
     for vpc_id in vpc_ids:
       if input_id == vpc_id:
@@ -241,9 +275,4 @@ def start():
 
 if __name__ == "__main__":
   start()
-
-
-
-
-
 
