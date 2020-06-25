@@ -99,14 +99,13 @@ def convert_from_unix_time(time):
 #This function accepts a single argument, "number" (a string) representing a protocol number and returns the corresponding protocol name. 
 
 def return_protocol_name(number):
-  if number == "6":
-    return "TCP"
-  elif number == "17":
-    return "UDP"
-  elif number == "1":
-    return "ICMP"
-  else:
-    return number
+  protocol_dict = {
+    "6": "TCP",
+    "17": "UDP",
+    "1": "ICMP"
+  }
+  return protocol_dict.get(number, number)
+
 
 #This function downloads a file from an Amazon S3 bucket and prints to the console all non-encrypted traffic. 
 #The file is then read line-by-line, with each line being split by spaces and reformatted to look better in the console. Only lines that 
@@ -244,30 +243,24 @@ def start():
   input_id = None
   input_region = None
   break_loop = False
-  while break_loop == False:
+  while not break_loop:
     input_region = input("Please enter the region containing the VPC "
                          "that you would like to monitor: ")
     valid_region = False
-    for region in regions:
-      if region == input_region:
-        valid_region = True
+    if input_region in regions:
+      valid_region = True
     ec2 = boto3.client('ec2', region_name = input_region)
     response = ec2.describe_vpcs()
     instance_list = response['Vpcs']
-    vpc_ids = []
-    index = 0
-    for instance in instance_list:
-      vpc_id = instance['VpcId']
-      print(str(index) + ". " + vpc_id)
-      vpc_ids.append(vpc_id)
-      index += 1
+    print("VPCs in that region: ")
+    vpc_ids = [instance['VpcId'] for instance in instance_list]
+    print(*vpc_ids, sep="\n")
     input_id = input("Please enter the VPC ID of the VPC that you would"
                      " like to monitor: ")
     valid_id = False
-    for vpc_id in vpc_ids:
-      if input_id == vpc_id:
-        valid_id = True
-    if valid_id == True and valid_region == True:
+    if input_id in vpc_ids:
+      valid_id = True
+    if valid_id and valid_region:
       break_loop = True
     else:
       print("Invalid ID or region entered. Please try again.")
