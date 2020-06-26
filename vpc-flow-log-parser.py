@@ -61,7 +61,6 @@ def create_vpc_flow_log(client, VPC_ID, BUCKET_ARN):
           "Shutting down...")
     return 1
 
-
 #This function deletes a VPC Flow Log. It is called when the program execution is terminated via a keyboard interrupt.
 #It accepts two arguments:
 #client - a low-level boto3 client representing the Amazon Elastic Compute Cloud.
@@ -106,7 +105,6 @@ def return_protocol_name(number):
   }
   return protocol_dict.get(number, number)
 
-
 #This function downloads a file from an Amazon S3 bucket and prints to the console all non-encrypted traffic. 
 #The file is then read line-by-line, with each line being split by spaces and reformatted to look better in the console. Only lines that 
 #represent non-encrypted traffic (non-port-443) are printed.
@@ -114,7 +112,6 @@ def return_protocol_name(number):
 #BUCKET_NAME - the bucket name to download a file from. The file is downloaded as a .log.gz file and unzipped using gzip before reading.
 #key - the S3 key of the file to download from the bucket.
 #s3 - a low-level boto3 client representing the Amazon Simple Storage Service.
-
 
 def filter_logs(BUCKET_NAME, key, s3):
   try:
@@ -130,7 +127,6 @@ def filter_logs(BUCKET_NAME, key, s3):
         source_port = split_record[5].decode('utf-8')
         destination_port = split_record[6].decode('utf-8')
         if source_port != '443' and destination_port != '443':
-                    
           source_port_reformatted = string_reformatter(source_port, 12)
           destination_port_reformatted = string_reformatter(destination_port, 17)
           source_ip_reformatted = string_reformatter(split_record[3].decode('utf-8'), 16)
@@ -187,13 +183,10 @@ def get_default_region():
 #VPC_ID - the ID of the VPC to monitor. Passed in by the start() function.
 #REGION - the region in which to create the client. Passed in by the start() function.
 
-
-
 def mainloop(VPC_ID, REGION):
   BUCKET_NAME = VPC_ID + "-flow-log-storage" #bucket name to be monitored.
   PREFIX = "AWSLogs/" #prefix (used to filter out extraneous files from the filtering process)
   TOTAL_OBJECTS = 0 #current total number of objects in the bucket (used to check if new objects have been added)
-
   ec2_client = boto3.client('ec2', region_name = REGION)
   default_region = get_default_region()
   client = boto3.client('s3') #create client
@@ -221,7 +214,6 @@ def mainloop(VPC_ID, REGION):
       os.remove('log_01.log.gz')
     pass
 
-
 #This function returns a list of AWS regions.
 
 def get_regions():
@@ -235,7 +227,6 @@ def get_regions():
 
 #This function serves the purpose of receiving and parsing input from the user on which VPC they would like to monitor and which region they would like to
 #create the boto3 EC2 client in. 
-
 
 def start():
   print("Welcome to the AWS VPC Flow Log parser.")
