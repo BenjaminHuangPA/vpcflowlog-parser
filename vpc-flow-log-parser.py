@@ -4,6 +4,8 @@ import gzip
 import time
 import datetime
 import os
+import random
+import string
 
 #This function creates an S3 bucket to store flow log records. It accepts three arguments:
 #client - a low-level boto3 client representing Amazon Simple Storage Service
@@ -184,7 +186,8 @@ def get_default_region():
 #REGION - the region in which to create the client. Passed in by the start() function.
 
 def mainloop(VPC_ID, REGION):
-  BUCKET_NAME = VPC_ID + "-flow-log-storage" #bucket name to be monitored.
+  rand_string = "".join(random.choices(string.ascii_lowercase + string.digits, k=8)) #generate random string to distinguish bucket for extra insurance
+  BUCKET_NAME = VPC_ID + "-fls-" + rand_string #bucket name to be monitored.
   PREFIX = "AWSLogs/" #prefix (used to filter out extraneous files from the filtering process)
   TOTAL_OBJECTS = 0 #current total number of objects in the bucket (used to check if new objects have been added)
   ec2_client = boto3.client('ec2', region_name = REGION)
@@ -241,11 +244,14 @@ def start():
     if input_region in regions:
       valid_region = True
     ec2 = boto3.client('ec2', region_name = input_region)
+    filter_for_running_vpcs = [{}]
     response = ec2.describe_vpcs()
     instance_list = response['Vpcs']
     print("VPCs in that region: ")
     vpc_ids = [instance['VpcId'] for instance in instance_list]
+    
     print(*vpc_ids, sep="\n")
+    
     input_id = input("Please enter the VPC ID of the VPC that you would"
                      " like to monitor: ")
     valid_id = False
@@ -259,4 +265,3 @@ def start():
 
 if __name__ == "__main__":
   start()
-
