@@ -6,6 +6,8 @@ import datetime
 import os
 import random
 import string
+import json
+
 
 #This function creates an S3 bucket to store flow log records. It accepts three arguments:
 #client - a low-level boto3 client representing Amazon Simple Storage Service
@@ -107,6 +109,23 @@ def return_protocol_name(number):
   }
   return protocol_dict.get(number, number)
 
+def dump_to_json(records, accepted_traffic_tally, rejected_traffic_tally, tcp_traffic_tally, udp_traffic_tally, other_traffic_tally):
+  now = datetime.datetime.now()
+  date_suffix = now.strftime("%m-%d-%Y-%H-%M-%S")
+  JSON_FILENAME = "log-" + date_suffix + ".json"
+  JSON_FILE_OBJ = open(JSON_FILENAME, "a+")
+  return_dict = {
+    "Accepted Traffic Tally": accepted_traffic_tally,
+    "Rejected Traffic Tally": rejected_traffic_tally,
+    "TCP Traffic Tally": tcp_traffic_tally,
+    "UDP Traffic Tally": udp_traffic_tally,
+    "Other Traffic Tally": other_traffic_tally,
+    "All traffic": records
+  }
+  json.dump(return_dict, JSON_FILE_OBJ)
+  JSON_FILE_OBJ.close()
+ 
+
 #This function downloads a file from an Amazon S3 bucket and prints to the console all non-encrypted traffic. 
 #The file is then read line-by-line, with each line being split by spaces and reformatted to look better in the console. Only lines that 
 #represent non-encrypted traffic (non-port-443) are printed.
@@ -115,8 +134,15 @@ def return_protocol_name(number):
 #key - the S3 key of the file to download from the bucket.
 #s3 - a low-level boto3 client representing the Amazon Simple Storage Service.
 
-def filter_logs(BUCKET_NAME, key, s3):
+def filter_logs(BUCKET_NAME, key, s3, json_output):
   try:
+    return_dict = {
+      "accepted_traffic_tally": 0,
+      "rejected_traffic_tally": 0,
+      "tcp_traffic_tally": 0,
+      "udp_traffic_tally": 0,
+      "other_traffic_tally": 0
+    }
     s3.meta.client.download_file(BUCKET_NAME, key, 'log_01.log.gz') 
     with gzip.open('log_01.log.gz', 'rb') as file:
       file_content = file.read();
@@ -137,11 +163,44 @@ def filter_logs(BUCKET_NAME, key, s3):
           protocol = split_record[7].decode('utf-8')
           account_id = split_record[1].decode('utf-8')
           protocol_reformatted = string_reformatter(return_protocol_name(protocol), 10)
-          action_reformatted = string_reformatter(split_record[12].decode('utf-8'), 7) 
+          action_reformatted = string_reformatter(split_record[12].decode('utf-8'), 7)
+
+
+          json_source_ip = split_record[3].decode('utf-8')
+          json_destination_ip = split_record[4].decode('utf-8')
+          json_start_time = split_record[10].decode('utf-8')
+          json_protocol = split_record[7].decode('utf-8')
+          json_account_id = split_record[1].decode('utf-8')
+          json_action = split_record[12].decode('utf-8')
+
+          json_dict = {
+            "Source IP": json_source_ip,
+            "Destination IP": json_destination_ip,
+            "Source Port": source_port,
+            "Destination Port": destination_port,
+            "Start time": json_start_time,
+            "Protocol": json_protocol,
+            "Account ID": json_account_id,
+            "Action": json_action
+          }
+
+          json_output.append(json_dict)
+
           print(destination_port_reformatted + destination_ip_reformatted + 
                 source_port_reformatted + source_ip_reformatted + start_time + 
                 " | " + account_id + " | " + protocol_reformatted + 
                 action_reformatted)
+          if split_record[12].decode('utf-8') == "ACCEPT":
+            return_dict['accepted_traffic_tally'] += 1
+          else:
+            return_dict['rejected_traffic_tally'] += 1
+          if return_protocol_name(protocol) == "TCP":
+            return_dict['tcp_traffic_tally'] += 1
+          elif return_protocol_name(protocol) == "UDP":
+            return_dict['udp_traffic_tally'] += 1
+          else:
+            return_dict['other_traffic_tally'] += 1
+    return return_dict 
   except botocore.exceptions.ClientError as e:
     if e.response['Error']['Code'] == "404":
       print("The object with the specified key does not exist.")
@@ -159,6 +218,7 @@ def filter_logs(BUCKET_NAME, key, s3):
 
 def get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, client):
   num_objects = 0
+  new_keys = []
   for page in paginator.paginate(Bucket=BUCKET_NAME):
     key_name = 'Contents'
     if key_name in page:
@@ -167,9 +227,11 @@ def get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, client):
         key = object['Key'] #get a particular object's key
         num_objects += 1 #increment the total count of objects
         if num_objects > TOTAL_OBJECTS: #check if the number of objects registered is greater than the previous amount
-          filter_logs(BUCKET_NAME, key, client) #download that particular file and check if there is non port 443 traffic.     
+          new_keys.append(key)
+          #filter_logs(BUCKET_NAME, key, client) #download that particular file and check if there is non port 443 traffic.     
   print("Number of objects: " + str(num_objects))
-  return num_objects 
+  #return num_objects 
+  return new_keys
 
 #This function returns the user's default region.
 
@@ -177,6 +239,7 @@ def get_default_region():
   ec2_client = boto3.client('ec2')
   region = ec2_client.meta.region_name
   return region
+
 
 #The main loop of the function. Initializes the EC2 and S3 clients, as well as TOTAL_OBJECTS, BUCKET_NAME, and other variables, creates the paginator
 #and the bucket, and then enters a loop where every 60 secodns, get_num_objects() is called to get the total number of objects in the bucket to check
@@ -186,6 +249,12 @@ def get_default_region():
 #REGION - the region in which to create the client. Passed in by the start() function.
 
 def mainloop(VPC_ID, REGION):
+  accepted_traffic_tally = 0
+  rejected_traffic_tally = 0
+  tcp_traffic_tally = 0
+  udp_traffic_tally = 0
+  other_traffic_tally = 0
+  json_output = []
   rand_string = "".join(random.choices(string.ascii_lowercase + string.digits, k=8)) #generate random string to distinguish bucket for extra insurance
   BUCKET_NAME = VPC_ID + "-fls-" + rand_string #bucket name to be monitored.
   PREFIX = "AWSLogs/" #prefix (used to filter out extraneous files from the filtering process)
@@ -205,9 +274,21 @@ def mainloop(VPC_ID, REGION):
   s3 = boto3.resource('s3')
   try:
     while True:
-      TOTAL_OBJECTS = get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, 
-                                      paginator, s3) #update the number of registered objects in the bucket. we pass the bucket name and current number of registered objects to this function.
-      print("Querying the bucket for additional objects...")
+      print("Querying the bucket for objects...")
+      #TOTAL_OBJECTS = get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, 
+      #                                paginator, s3) #update the number of registered objects in the bucket. we pass the bucket name and current number of registered objects to this function.
+      new_keys = get_num_objects(BUCKET_NAME, PREFIX, TOTAL_OBJECTS, paginator, s3)
+      if len(new_keys) != 0:
+        TOTAL_OBJECTS += len(new_keys)
+        for key in new_keys:
+          returned_dict = filter_logs(BUCKET_NAME, key, s3, json_output)
+          accepted_traffic_tally += returned_dict['accepted_traffic_tally']
+          rejected_traffic_tally += returned_dict['rejected_traffic_tally']
+          tcp_traffic_tally += returned_dict['tcp_traffic_tally']
+          udp_traffic_tally += returned_dict['udp_traffic_tally']
+          other_traffic_tally += returned_dict['other_traffic_tally']
+          
+        print("Querying the bucket for additional objects...")
       time.sleep(60)
   except KeyboardInterrupt:
     print("Shutting down...")
@@ -215,6 +296,19 @@ def mainloop(VPC_ID, REGION):
     delete_vpc_flow_log(ec2_client, flow_log_id)
     if os.path.exists("log_01.log.gz"):
       os.remove('log_01.log.gz')
+    print("LOG SUMMARY ===============================")
+    print("Accepted traffic: %d" % accepted_traffic_tally)
+    print("Rejected traffic: %d" % rejected_traffic_tally)
+    print("TCP traffic: %d" % tcp_traffic_tally)
+    print("UDP traffic: %d" % udp_traffic_tally)
+    print("Other traffic: %d" % other_traffic_tally)
+    print("===========================================")
+    dump_to_json(json_output, 
+                 accepted_traffic_tally, 
+                 rejected_traffic_tally, 
+                 tcp_traffic_tally, 
+                 udp_traffic_tally, 
+                 other_traffic_tally);
     pass
 
 #This function returns a list of AWS regions.
@@ -265,3 +359,6 @@ def start():
 
 if __name__ == "__main__":
   start()
+
+#ec2_client = boto3.client('ec2')
+#delete_vpc_flow_log(ec2_client, "fl-0dcfcf7114327abe7")
